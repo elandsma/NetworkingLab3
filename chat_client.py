@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 
 import socket
 import sys
@@ -9,11 +8,17 @@ import time
 
 from chat_server import ClientClosedConnection, read_lines, reader_thread
 
-recv_q = queue.Queue(10)
-gpg = gnupg.GPG(gnupghome="mypathtothefile")   #TODO change this to reflect
+recv_q = queue.Queue(10)   #q of messages, received from others
+
+try:
+    gpg = gnupg.GPG(homedir="/Users/elias/.gnupg", binary="/usr/local/bin/gpg")  #works on my mac
+except:
+    gpg = gnupg.GPG(gnupghome="/home/elandsma/.gnupg")   #works on montreat
+
+
 
 def process_received_message_client(lines):
-    print("got in to process_received_message_client")
+    #print("got in to process_received_message_client\n")
     assert (lines[0]=="BEGIN")
     assert (lines[-1] == "END")
     msg = {}
@@ -34,6 +39,7 @@ def send_hello(sock, username):
     buff+="type:hello\n"                    #type of message
     buff+="name: {0}\n".format(username)    #tell everyone our name
     buff+="END\n"
+    #print("debug: send_hello reached\n")
     sock.sendall(str.encode(buff))          #send over 'sock' tcp connection
 
 def send_hello_ack(sock, username):
@@ -41,9 +47,11 @@ def send_hello_ack(sock, username):
     buff+="type:hello_ack\n"                    #type of message
     buff+="name: {0}\n".format(username)    #tell everynone our name
     buff+="END\n"
+    #print("debug: send_hello_ack reached\n")
     sock.sendall(str.encode(buff))          #send over 'sock' tcp connection
 
 def send_message( sock, msg):
+    print("debug: sending a message.")
     buff=''
     for key,value in msg.items():
         buff+="{0}:{1}\n".format(key,value)
@@ -63,24 +71,28 @@ def main( HOST, PORT, USERNAME):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((HOST, int(PORT)))
         #create reader thread
-        tr = threading.Thread(target=reader_thread, args=(s, process_received_message_client))
+        tr = threading.Thread(target=reader_thread, args=(s, process_received_message_client, ))
         tr.daemon=True
         tr.start()
 
-        tj = threading.Thread(target=tell_joke, args=(s, ))
-        tj.daemon = True
-        tj.start()
+        #Joke Daemon.
+        #tj = threading.Thread(target=tell_joke, args=(s, ))
+        #tj.daemon = True
+        #tj.start()
 
         #start chat protocol
         send_hello(s, USERNAME)
         while True:
             #get next message
             msg = recv_q.get()
+            #if somebody says hello to enter chat, show they have entered, and respond
             if msg['type'] == "hello":
                 print("{0} has joined the chat".format(msg['name']))
                 send_hello_ack(s, USERNAME)
+            #show that others have responded to somebody else entering chat and saying hello.
             elif msg['type'] == "hello_ack":
                 print("{0} is in the chatroom".format(msg['name']))
+            #if not hello or hello_ack, process message otherwise:
             else:
                 msg={}
                 msg['type']="broadcast"

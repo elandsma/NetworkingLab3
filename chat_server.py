@@ -1,4 +1,3 @@
-#!/user/bin/env python3
 '''
 Elias Landsman
 April 2021
@@ -25,20 +24,20 @@ def read_lines(conn):
     while True:
         data = conn.recv(1024)
         if not data:
-            raise ClientClosedConnection('client closed connection')
-            #break # reached end of message
+            raise ClientClosedConnection(f"client closed connection.")
+            # reached end of message
         buff += data.decode('utf-8', "ignore")
         if buff.endswith("\n"):
             break
-    print(f"RECV: {format(buff)}")
+    #print(f"read_lines got raw message.\n")
     buff.replace("\r", "")   #remove all "\r" chars
     return buff.split("\n")
 
-def reader_thread(conn):
+def reader_thread(conn, process):
     try:
         lines=[]
         while True:
-            lines.extend(read_lines(conn))
+            #lines.extend(read_lines(conn))
             #only add non-blank lines to be processed
             for line in read_lines(conn):
                 if line !='':
@@ -46,10 +45,10 @@ def reader_thread(conn):
             while True:
                 msg_start = None
                 msg_end = None
-                #print("reader_thread() lines={0}".format(lines))  #debug
+                #print(f"\nlines received by reader_thread():\n{format(lines)}\n")  #debug
                 #looking for "BEGIN"
                 for i in range(len(lines)):
-                    if lines[i]=="BEGIN\n":
+                    if lines[i]=="BEGIN":
                         #print(f"Got BEGIN at line {format(i)}")   #debug
                         msg_start = i
                         break
@@ -61,7 +60,8 @@ def reader_thread(conn):
                             msg_end = i
                             break
                 if msg_start is not None and msg_end is not None:
-                    process_message_server(lines[msg_start:msg_end+1])
+                    #print("debug: reader_thread has message with start and end. sending it to process.")
+                    process(lines[msg_start:msg_end+1])
                     #remove message portion from lines[] that has already been processed
                     del lines[0:msg_end+1]
                 else:
@@ -69,13 +69,16 @@ def reader_thread(conn):
     except ClientClosedConnection as e:
         print(e)
 
-def process_message_server(message_lines):
+
+def process_received_message_server(message_lines):
+    '''this is passed as a process() function parameter into the reader_thread function'''
+    print(f"debug: Got message with begin and end. Placing in all client queues.")
     for q in list_of_queues:
         q.put(message_lines, False)
 
-def writer_thread(conn):
+def writer_thread(conn, q):
     while True:
-        msg_to_send = queue.get()
+        msg_to_send = q.get()
         msg_data = "\n".join(msg_to_send) + "\n"
         conn.sendall(str.encode(msg_data))
 
@@ -103,18 +106,17 @@ def main():
             list_of_queues.append(q)
             #create threads to handle connection to client
             #reader thread
-            tr = threading.Thread(target=reader_thread, args=(conn,process_message_server ))
+            tr = threading.Thread(target=reader_thread, args=(conn, process_received_message_server, ))
             tr.daemon=True
             tr.start()
             #writer thread
-            tw = threading.Thread(target=writer_thread, args=(conn, ))
+            tw = threading.Thread(target=writer_thread, args=(conn, q, ))
             tw.daemon=True
             tw.start()
 
     finally:
         s.shutdown(socket.SHUT_WR)
         s.close()
-
 
 if __name__=="__main__":
     main()
