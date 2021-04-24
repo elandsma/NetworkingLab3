@@ -94,7 +94,7 @@ def writer_thread(conn, q):
             list_of_queues.remove(q)
             break
         except:
-            print("gang")
+            print("killing writer_thread, removing q")
             list_of_queues.remove(q)
             break
 
