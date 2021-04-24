@@ -14,7 +14,7 @@ import ssl
 PORT_START=37301
 HOST = '0.0.0.0'
 list_of_queues = []
-context = ssl.create_default_context()
+exit_event = threading.Event()
 
 
 class ClientClosedConnection(Exception):
@@ -40,6 +40,9 @@ def server_reader_thread(conn, process):
     try:
         lines=[]
         while True:
+            if exit_event.is_set():
+                conn.close()
+                break
             #only add non-blank lines to be processed
             for line in read_lines(conn):
                 if line !='':
@@ -87,6 +90,9 @@ def process_received_message_server(message_lines):
 
 def writer_thread(conn, q):
     while True:
+        if exit_event.is_set():
+            conn.close()
+            break
         msg_to_send = q.get()
         msg_data = "\n".join(msg_to_send) + "\n"
         try:
@@ -100,33 +106,30 @@ def writer_thread(conn, q):
             list_of_queues.remove(q)
             break
 
-
 def main():
     threads = []
     clients = []
-
+    s = None
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain('./montreat-fullchain.pem', './montreat-privkey.pem')
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0) as rawsocket:
-        #find available port
-        PORT = PORT_START
-        while(PORT<PORT_START+20): #check for 20 ports
-            try:
-                rawsocket.bind( (HOST, PORT) )
-                print(f"Server bound to port {format(PORT)}")
-                break
-            except:
-                PORT+=1
+    context.load_cert_chain(certfile='./montreat-fullchain.pem', keyfile='./montreat-privkey.pem')
+    bindsocket = socket.socket()
+    # source:   https://docs.huihoo.com/python/3.2.5/library/ssl.html
+    #find available port
+    PORT = PORT_START
+    while(PORT<PORT_START+20): #check for 20 ports
+        try:
+            bindsocket.bind( (HOST, PORT) )
+            print(f"Server bound to port {format(PORT)}")
+            break
+        except:
+            PORT+=1
     #found an open port.
-    s=None
-    rawsocket.listen()
+    #s=None
     try:
+        bindsocket.listen()
+        s = context.wrap_socket(bindsocket, server_side=True)
         while True:
-            # wait  for connection
-            with context.wrap_socket(rawsocket, server_side=True) as s:
-
-                conn, addr = s.accept()
-
+            newsocket, addr = s.accept()
             #add client to list of current clients.
             clients.append(s)
             print(f"New connection from {format(addr)}")
@@ -135,20 +138,28 @@ def main():
             list_of_queues.append(q)
             #create threads to handle connection to client
             #reader thread
-            tr = threading.Thread(target=server_reader_thread, args=(s, process_received_message_server, ))
+            tr = threading.Thread(target=server_reader_thread, args=(newsocket, process_received_message_server, ))
             tr.daemon=True
             threads.append(tr)
             tr.start()
             #writer thread
-            tw = threading.Thread(target=writer_thread, args=(s, q, ))
+            tw = threading.Thread(target=writer_thread, args=(newsocket, q, ))
             tw.daemon=True
             threads.append(tw)
             tw.start()
-
+    #except Exception as e:
+     #   print("exception")
     finally:
+        exit_event.set()
+        try:
+            s.shutdown(socket.SHUT_WR)
+        except:
+            print("s.shutdown exception reached")
+        # s.shutdown(socket.SHUT_WR)
+        bindsocket.close()
         if s is not None:
-            s.shutdown(socket.SHUT_RDWR)
-            s.close()
+            if not s._closed:
+                s.close()
 
 if __name__=="__main__":
     main()

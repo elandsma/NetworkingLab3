@@ -9,10 +9,9 @@ import signal
 import ssl
 
 from chat_server import ClientClosedConnection, read_lines
-
+context = ssl.create_default_context()
 recv_q = queue.Queue(10)   #q of messages, received from others
 exit_event = threading.Event()
-context = ssl.create_default_context()
 
 HANDLE = ""
 
@@ -170,43 +169,40 @@ def main( HOST, PORT, USERNAME):
         exit()
     signal.signal(signal.SIGINT, sighandler)
     threads = []
-    #connect to remote chat_server
-    with socket.create_connection(socket.AF_INET, socket.SOCK_STREAM) as unwrappedConn:
-        s = ssl.wrap_socket(unwrappedConn, ssl_version=ssl.PROTOCOL_TLSv1, ciphers="ADH-AES256-SHA")
-        s.connect((HOST, int(PORT)))
+    try:
+        #connect to remote chat_server
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raws:
+            s = ssl.wrap_socket(raws)
+            s.connect((HOST, int(PORT)))
 
-        print("Connected to server.")
-        print("Type \"NEW\" to send message. Type \"QUIT\" to quit.")
-        #create reader thread
-        tr = threading.Thread(target=client_reader_thread, args=(s, process_received_message_client, ))
-        tr.daemon=True
-        threads.append(tr)
-        tr.start()
+            print("Connected to server.")
+            print("Type \"NEW\" to send message. Type \"QUIT\" to quit.")
+            #create reader thread
+            tr = threading.Thread(target=client_reader_thread, args=(s, process_received_message_client, ))
+            tr.daemon=True
+            threads.append(tr)
+            tr.start()
 
-        #Joke Daemon.
-        #tj = threading.Thread(target=tell_joke, args=(s, ))
-        #tj.daemon = True
-        #tj.start()
+            #start chat protocol
+            send_hello(s, USERNAME)
 
-        #start chat protocol
-        send_hello(s, USERNAME)
-
-        recvqthread = threading.Thread(target=recvq_thread, args=(s, USERNAME,))
-        recvqthread.daemon = True
-        threads.append(recvqthread)
-        recvqthread.start()
-        while True:
-            for line in sys.stdin:
-                if line.rstrip() == "NEW":
-                    constructMessage(s, USERNAME)
-                if line.rstrip() == "QUIT":
-                    send_goodbye(s, USERNAME)
-                    exit_event.set()
-                    for t in threads:
-                        t.join()
-                    s.close()
-                    exit(0)
-
+            recvqthread = threading.Thread(target=recvq_thread, args=(s, USERNAME,))
+            recvqthread.daemon = True
+            threads.append(recvqthread)
+            recvqthread.start()
+            while True:
+                for line in sys.stdin:
+                    if line.rstrip() == "NEW":
+                        constructMessage(s, USERNAME)
+                    if line.rstrip() == "QUIT":
+                        send_goodbye(s, USERNAME)
+                        exit_event.set()
+                        for t in threads:
+                            t.join()
+                        s.close()
+                        exit(0)
+    except ConnectionRefusedError:
+        print("Connection Refused Error")
 
 
 if __name__=="__main__":

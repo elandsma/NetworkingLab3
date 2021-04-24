@@ -108,9 +108,10 @@ def send_message( sock, msg):
     buff=''
     for key,value in msg.items():
         buff+="{0}:{1}\n".format(key,value)
-    #sign_data=gpg.sign(buff)
+
     #todo : fix this.
-    sign_data="FIXME"
+    sign_data=gpg.sign(buff)
+    #sign_data="FIXME"
     buff+="signed:{0}\n".format(sign_data)
     buff="BEGIN\n{0}END\n".format(buff)
     #print(f"Debug: sending: {format(buff)}")
