@@ -11,6 +11,7 @@ HOST = '0.0.0.0'
 import socket
 import threading
 import queue
+import sys
 
 list_of_queues = []
 
@@ -33,11 +34,10 @@ def read_lines(conn):
     buff.replace("\r", "")   #remove all "\r" chars
     return buff.split("\n")
 
-def reader_thread(conn, process):
+def server_reader_thread(conn, process):
     try:
         lines=[]
         while True:
-            #lines.extend(read_lines(conn))
             #only add non-blank lines to be processed
             for line in read_lines(conn):
                 if line !='':
@@ -49,30 +49,37 @@ def reader_thread(conn, process):
                 #looking for "BEGIN"
                 for i in range(len(lines)):
                     if lines[i]=="BEGIN":
-                        #print(f"Got BEGIN at line {format(i)}")   #debug
                         msg_start = i
                         break
                 # looking for "END"
                 if msg_start is not None:
                     for i in range(len(lines)):
                         if lines[i]=="END":
-                            #print(f"got END at line {format(i)}")  #debug
                             msg_end = i
                             break
                 if msg_start is not None and msg_end is not None:
-                    #print("debug: reader_thread has message with start and end. sending it to process.")
-                    process(lines[msg_start:msg_end+1])
-                    #remove message portion from lines[] that has already been processed
+                    #turn lines[] into dictionary so we can access key:value pairs
+                    #only do this for lines BETWEEN 'begin' and 'end'.
+                    msgDict = {}
+                    #for line in lines:
+                    for line in lines[msg_start+1:msg_end]:
+                        if line != "BEGIN" and line!="END":
+                            i = line.split(':')
+                            msgDict[i[0]] = i[1]
+                    process(lines[msg_start:msg_end +1])
                     del lines[0:msg_end+1]
                 else:
                     break
     except ClientClosedConnection as e:
+        conn.close()
         print(e)
+        sys.exit()
+
 
 
 def process_received_message_server(message_lines):
     '''this is passed as a process() function parameter into the reader_thread function'''
-    print(f"debug: Got message with begin and end. Placing in all client queues.")
+    print(f"Sending message to all client queues.")
     for q in list_of_queues:
         q.put(message_lines, False)
 
@@ -80,9 +87,21 @@ def writer_thread(conn, q):
     while True:
         msg_to_send = q.get()
         msg_data = "\n".join(msg_to_send) + "\n"
-        conn.sendall(str.encode(msg_data))
+        try:
+            conn.sendall(str.encode(msg_data))
+        except ClientClosedConnection as e:
+            print(e)
+            list_of_queues.remove(q)
+            break
+        except:
+            print("gang")
+            list_of_queues.remove(q)
+            break
+
 
 def main():
+    threads = []
+    clients = []
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     #find available port
     PORT = PORT_START
@@ -100,18 +119,22 @@ def main():
         while True:
             # wait  for connection
             conn, addr = s.accept()
+            #add client to list of current clients.
+            clients.append(conn)
             print(f"New connection from {format(addr)}")
-            #create queue for this client
+            #create queue for this client, add to list of q's
             q = queue.Queue(10)
             list_of_queues.append(q)
             #create threads to handle connection to client
             #reader thread
-            tr = threading.Thread(target=reader_thread, args=(conn, process_received_message_server, ))
+            tr = threading.Thread(target=server_reader_thread, args=(conn, process_received_message_server, ))
             tr.daemon=True
+            threads.append(tr)
             tr.start()
             #writer thread
             tw = threading.Thread(target=writer_thread, args=(conn, q, ))
             tw.daemon=True
+            threads.append(tw)
             tw.start()
 
     finally:
