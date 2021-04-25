@@ -108,12 +108,10 @@ def send_message( sock, msg):
     buff=''
     for key,value in msg.items():
         buff+="{0}:{1}\n".format(key,value)
-
-    #todo : fix this.
     sign_data=gpg.sign(buff)
     buff+="signed:{0}\n".format(sign_data)
     buff="BEGIN\n{0}END\n".format(buff)
-    sock.sendall(str.encode(buff))  #send
+    sock.sendall(str.encode(buff))
 
 def constructMessage(conn, USERNAME):
     type = ""
