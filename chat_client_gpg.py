@@ -16,9 +16,9 @@ exit_event = threading.Event()
 HANDLE = ""
 
 try:
-    gpg = gnupg.GPG(homedir="/Users/elias/.gnupg", binary="/usr/local/bin/gpg")  #works on my mac
+    gpg = gnupg.GPG(homedir="./gnu" )  #works on my mac
 except:
-    gpg = gnupg.GPG(gnupghome="/home/elandsma/.gnupg")   #works on montreat
+    gpg = gnupg.GPG(gnupghome="./gnu", gpgbinary="/usr/bin/gpg")   #works on montreat
 
 
 def client_reader_thread(conn, process):
@@ -111,10 +111,8 @@ def send_message( sock, msg):
 
     #todo : fix this.
     sign_data=gpg.sign(buff)
-    #sign_data="FIXME"
     buff+="signed:{0}\n".format(sign_data)
     buff="BEGIN\n{0}END\n".format(buff)
-    #print(f"Debug: sending: {format(buff)}")
     sock.sendall(str.encode(buff))  #send
 
 def constructMessage(conn, USERNAME):
